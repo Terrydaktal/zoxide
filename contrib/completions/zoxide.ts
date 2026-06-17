@@ -343,6 +343,10 @@ const completion: Fig.Spec = {
           description: "Print score with results",
         },
         {
+          name: "--typo-fallback",
+          description: "Enable typo fallback even if it is disabled by the environment",
+        },
+        {
           name: ["-h", "--help"],
           description: "Print help",
         },

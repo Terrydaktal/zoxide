@@ -76,6 +76,62 @@ z foo<SPACE><TAB>  # show interactive completions (bash 4.4+/fish/zsh only)
 
 Read more about the matching algorithm [here][algorithm-matching].
 
+### Query ranking and display
+
+`zoxide query`, `z`, and `zi` now have three related but distinct orderings:
+
+1. Normal query ranking, used whenever the built-in matcher finds results.
+2. Typo fallback ranking, used only after the normal matcher finds no usable result.
+3. Interactive display columns, which show the ranking inputs without changing the actual sort order.
+
+Normal query ranking is applied in this order:
+
+1. Match-quality vector, strongest to weakest, compared keyword-by-keyword from right to left:
+   - exact token match
+   - token-prefix match
+   - token-suffix match
+   - token-contains-substring match
+2. Path-position class `p`, ascending.
+   - `p=0.xx` means the match is in the basename at the start of a token.
+   - `p=1.xx` means the match is in the basename at the end of a token.
+   - `p=2.xx` means the match is in the middle of the basename token.
+   - `p=3.xx`, `p=4.xx`, and `p=5.xx` repeat the same start/end/middle ladder for the parent directory, then `6.xx` and above continue outward toward higher ancestors.
+3. Structural refinement `m`, ascending.
+   - Internally, `m` is still compared after the coarse `p` class.
+   - In the interactive UI, `m` is shown as the fractional part of `p`.
+   - Example: `onfig` in `config` renders as `p=1.01`, while `onfig` in `redragonmouseconfig` renders as `p=1.13`.
+4. Frecency score, descending.
+5. Path string as the final deterministic tie-break.
+
+Typo fallback ranking is only considered after the normal matcher fails, and is applied in this order:
+
+1. Typo distance `d`, ascending.
+2. Normalized typo ratio, ascending.
+3. Match scope, ascending.
+   - basename
+   - basename token
+   - other path component
+   - other path component token
+   - full path
+4. Path-position class `p`, ascending.
+5. Structural refinement `m`, ascending.
+6. Frecency score, descending.
+7. Path depth, ascending.
+8. Path string, ascending.
+
+Interactive `zi` / `cdi` rows are displayed as:
+
+```text
+<frecency> p=<path class>.<structural refinement> d=<typo distance> <path>
+```
+
+- `p` is shown as a single value where the integer part is the path-position class and the fractional part is the structural refinement `m`, zero-padded to two digits.
+- Example: `p=0.01` means a basename-leading match with `m=1`, while `p=1.14` means a basename-suffix match with `m=14`.
+- The display order is score, then `p`, then `d`.
+- The actual sort order remains the hierarchy described above.
+- For normal matches, `d=0` means typo fallback was not needed.
+- For typo fallback matches, `d` shows the bounded Damerau-Levenshtein-based edit cost, while the fractional part of `p` shows how much extra token structure had to be skipped around the best matching span.
+
 ## Installation
 
 zoxide can be installed in 4 easy steps:

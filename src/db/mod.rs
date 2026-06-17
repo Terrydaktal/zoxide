@@ -1,5 +1,6 @@
 mod dir;
 mod stream;
+pub(crate) mod typo;
 
 use std::path::{Path, PathBuf};
 use std::{fs, io};
@@ -9,7 +10,10 @@ use bincode::Options;
 use ouroboros::self_referencing;
 
 pub use crate::db::dir::{Dir, Epoch, Rank};
+use crate::db::stream::match_qualities;
 pub use crate::db::stream::{Stream, StreamOptions};
+pub(crate) use crate::db::stream::{match_path_position, match_penalty};
+pub use crate::db::typo::TypoMatch;
 use crate::{config, util};
 
 #[self_referencing]
@@ -175,6 +179,26 @@ impl Database {
         self.with_dirs_mut(|dirs| {
             dirs.sort_unstable_by(|dir1: &Dir, dir2: &Dir| {
                 dir1.score(now).total_cmp(&dir2.score(now))
+            })
+        });
+        self.with_dirty_mut(|dirty| *dirty = true);
+    }
+
+    pub fn sort_for_query(&mut self, now: Epoch, keywords: &[String]) {
+        self.with_dirs_mut(|dirs| {
+            dirs.sort_unstable_by(|dir1: &Dir, dir2: &Dir| {
+                let qualities1 = match_qualities(&dir1.path, keywords);
+                let qualities2 = match_qualities(&dir2.path, keywords);
+                let position1 = crate::db::match_path_position(&dir1.path, keywords);
+                let position2 = crate::db::match_path_position(&dir2.path, keywords);
+                let penalty1 = crate::db::match_penalty(&dir1.path, keywords);
+                let penalty2 = crate::db::match_penalty(&dir2.path, keywords);
+                qualities1
+                    .cmp(&qualities2)
+                    .then_with(|| position2.cmp(&position1))
+                    .then_with(|| penalty2.cmp(&penalty1))
+                    .then_with(|| dir1.score(now).total_cmp(&dir2.score(now)))
+                    .then_with(|| dir1.path.cmp(&dir2.path))
             })
         });
         self.with_dirty_mut(|dirty| *dirty = true);

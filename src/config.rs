@@ -60,3 +60,7 @@ pub fn maxage() -> Result<Rank> {
 pub fn resolve_symlinks() -> bool {
     env::var_os("_ZO_RESOLVE_SYMLINKS").is_some_and(|var| var == "1")
 }
+
+pub fn typo_fallback() -> bool {
+    env::var_os("_ZO_TYPO_FALLBACK").is_none_or(|var| var != "0")
+}

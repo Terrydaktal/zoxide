@@ -118,6 +118,7 @@ module completions {
     --score(-s)               # Print score with results
     --exclude: path           # Exclude the current directory
     --base-dir: path          # Only search within this directory
+    --typo-fallback           # Enable typo fallback even if it is disabled by the environment
     --help(-h)                # Print help
     --version(-V)             # Print version
     ...keywords: string

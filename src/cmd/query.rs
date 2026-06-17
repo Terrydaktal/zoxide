@@ -1,12 +1,15 @@
+use std::collections::HashSet;
 use std::io::{self, Write};
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 
 use crate::cmd::{Query, Run};
 use crate::config;
-use crate::db::{Database, Epoch, Stream, StreamOptions};
+use crate::db::{
+    Database, Epoch, Stream, StreamOptions, TypoMatch, match_path_position, match_penalty,
+};
 use crate::error::BrokenPipeHandler;
-use crate::util::{self, Fzf, FzfChild};
+use crate::util::{self, Fzf, FzfChild, format_path_position};
 
 impl Run for Query {
     fn run(&self) -> Result<()> {
@@ -19,26 +22,59 @@ impl Query {
     fn query(&self, db: &mut Database) -> Result<()> {
         let now = util::current_time()?;
         let mut stream = self.get_stream(db, now)?;
+        let typo_fallback = self.typo_fallback || config::typo_fallback();
 
         if self.interactive {
-            self.query_interactive(&mut stream, now)
+            self.query_interactive(&mut stream, now, typo_fallback)
         } else if self.list {
-            self.query_list(&mut stream, now)
+            self.query_list(&mut stream, now, typo_fallback)
         } else {
-            self.query_first(&mut stream, now)
+            self.query_first(&mut stream, now, typo_fallback)
         }
     }
 
-    fn query_interactive(&self, stream: &mut Stream, now: Epoch) -> Result<()> {
+    fn query_interactive(
+        &self,
+        stream: &mut Stream,
+        now: Epoch,
+        typo_fallback: bool,
+    ) -> Result<()> {
         let mut fzf = Self::get_fzf()?;
+        let mut wrote_any = false;
+        let mut seen_paths = HashSet::new();
         let selection = loop {
             match stream.next() {
                 Some(dir) if Some(dir.path.as_ref()) == self.exclude.as_deref() => continue,
                 Some(dir) => {
-                    if let Some(selection) = fzf.write(dir, now)? {
+                    wrote_any = true;
+                    seen_paths.insert(dir.path.as_ref().to_owned());
+                    let path_position = match_path_position(&dir.path, &self.keywords).unwrap_or(0);
+                    let structure = match_penalty(&dir.path, &self.keywords).unwrap_or(0);
+                    if let Some(selection) =
+                        fzf.write_query(dir, now, 0, path_position, structure)?
+                    {
                         break selection;
                     }
                 }
+                None if typo_fallback => {
+                    let mut selection = None;
+                    for candidate in
+                        stream.typo_matches(&self.keywords, self.exclude.as_deref(), now)
+                    {
+                        if seen_paths.contains(candidate.dir.path.as_ref()) {
+                            continue;
+                        }
+                        if let Some(selected) = fzf.write_typo(&candidate, now)? {
+                            selection = Some(selected);
+                            break;
+                        }
+                    }
+                    break match selection {
+                        Some(selection) => selection,
+                        None => fzf.wait()?,
+                    };
+                }
+                None if wrote_any => break fzf.wait()?,
                 None => break fzf.wait()?,
             }
         };
@@ -46,34 +82,75 @@ impl Query {
         if self.score {
             print!("{selection}");
         } else {
-            let path = selection.get(7..).context("could not read selection from fzf")?;
+            let (_, path) =
+                selection.split_once('\t').context("could not read selection from fzf")?;
             print!("{path}");
         }
         Ok(())
     }
 
-    fn query_list(&self, stream: &mut Stream, now: Epoch) -> Result<()> {
+    fn query_list(&self, stream: &mut Stream, now: Epoch, typo_fallback: bool) -> Result<()> {
         let handle = &mut io::stdout().lock();
+        let mut wrote_any = false;
         while let Some(dir) = stream.next() {
             if Some(dir.path.as_ref()) == self.exclude.as_deref() {
                 continue;
             }
             let dir = if self.score { dir.display().with_score(now) } else { dir.display() };
             writeln!(handle, "{dir}").pipe_exit("stdout")?;
+            wrote_any = true;
+        }
+
+        if !wrote_any && typo_fallback {
+            for candidate in stream.typo_matches(&self.keywords, self.exclude.as_deref(), now) {
+                let dir = if self.score {
+                    candidate.dir.display().with_score(now)
+                } else {
+                    candidate.dir.display()
+                };
+                writeln!(handle, "{dir}").pipe_exit("stdout")?;
+            }
         }
         Ok(())
     }
 
-    fn query_first(&self, stream: &mut Stream, now: Epoch) -> Result<()> {
+    fn query_first(&self, stream: &mut Stream, now: Epoch, typo_fallback: bool) -> Result<()> {
         let handle = &mut io::stdout();
-
-        let mut dir = stream.next().context("no match found")?;
-        while Some(dir.path.as_ref()) == self.exclude.as_deref() {
-            dir = stream.next().context("you are already in the only match")?;
+        let mut excluded_only = false;
+        while let Some(dir) = stream.next() {
+            if Some(dir.path.as_ref()) == self.exclude.as_deref() {
+                excluded_only = true;
+                continue;
+            }
+            let dir = if self.score { dir.display().with_score(now) } else { dir.display() };
+            return writeln!(handle, "{dir}").pipe_exit("stdout");
         }
 
-        let dir = if self.score { dir.display().with_score(now) } else { dir.display() };
-        writeln!(handle, "{dir}").pipe_exit("stdout")
+        if typo_fallback {
+            let matches = stream.typo_matches(&self.keywords, self.exclude.as_deref(), now);
+            match matches.as_slice() {
+                [] => {}
+                [candidate, ..]
+                    if matches.get(1).is_some_and(|next| is_ambiguous(candidate, next)) =>
+                {
+                    bail!("{}", format_ambiguous_matches(&matches));
+                }
+                [candidate, ..] => {
+                    let dir = if self.score {
+                        candidate.dir.display().with_score(now)
+                    } else {
+                        candidate.dir.display()
+                    };
+                    return writeln!(handle, "{dir}").pipe_exit("stdout");
+                }
+            }
+        }
+
+        if excluded_only {
+            bail!("you are already in the only match")
+        } else {
+            bail!("no match found")
+        }
     }
 
     fn get_stream<'a>(&self, db: &'a mut Database, now: Epoch) -> Result<Stream<'a>> {
@@ -104,6 +181,7 @@ impl Query {
                 "--bind=ctrl-z:ignore,btab:up,tab:down",
                 "--cycle",
                 "--keep-right",
+                "--no-mouse",
                 // Layout
                 "--border=sharp", // rounded edges don't display correctly on some terminals
                 "--height=45%",
@@ -118,4 +196,23 @@ impl Query {
         }
         .spawn()
     }
+}
+
+fn is_ambiguous(first: &TypoMatch<'_>, second: &TypoMatch<'_>) -> bool {
+    crate::db::typo::is_ambiguous(first, second)
+}
+
+fn format_ambiguous_matches(matches: &[TypoMatch<'_>]) -> String {
+    let mut message = String::from("ambiguous typo match");
+    for candidate in matches.iter().take(5) {
+        message.push_str(&format!(
+            "\n  d={} p={} ratio={:.3} scope={} {}",
+            candidate.distance,
+            format_path_position(candidate.path_position, candidate.structure),
+            candidate.ratio,
+            candidate.scope,
+            candidate.dir.path
+        ));
+    }
+    message
 }

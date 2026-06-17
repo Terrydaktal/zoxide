@@ -27,7 +27,8 @@ https://github.com/ajeetdsouza/zoxide
 {tab}<bold>_ZO_EXCLUDE_DIRS</bold>    {tab}List of directory globs to be excluded
 {tab}<bold>_ZO_FZF_OPTS</bold>        {tab}Custom flags to pass to fzf
 {tab}<bold>_ZO_MAXAGE</bold>          {tab}Maximum total age after which entries start getting deleted
-{tab}<bold>_ZO_RESOLVE_SYMLINKS</bold>{tab}Resolve symlinks when storing paths").into_resettable()
+{tab}<bold>_ZO_RESOLVE_SYMLINKS</bold>{tab}Resolve symlinks when storing paths
+{tab}<bold>_ZO_TYPO_FALLBACK</bold>   {tab}Enable typo fallback for query when set to 1, disable when set to 0").into_resettable()
     }
 }
 
@@ -197,6 +198,10 @@ pub struct Query {
     /// Only search within this directory
     #[clap(long, value_hint = ValueHint::DirPath, value_name = "path")]
     pub base_dir: Option<String>,
+
+    /// Enable typo fallback even if it is disabled by the environment
+    #[clap(long, hide = true)]
+    pub typo_fallback: bool,
 }
 
 /// Remove a directory from the database

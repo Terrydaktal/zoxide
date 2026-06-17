@@ -10,7 +10,7 @@ use std::{env, mem};
 use anyhow::anyhow;
 use anyhow::{Context, Result, bail};
 
-use crate::db::{Dir, Epoch};
+use crate::db::{Dir, Epoch, TypoMatch};
 use crate::error::SilentExit;
 
 pub const SECOND: Epoch = 1;
@@ -121,13 +121,32 @@ impl Fzf {
 pub struct FzfChild(Child);
 
 impl FzfChild {
-    pub fn write(&mut self, dir: &Dir, now: Epoch) -> Result<Option<String>> {
+    pub fn write_query(
+        &mut self,
+        dir: &Dir,
+        now: Epoch,
+        distance: usize,
+        path_position: usize,
+        structure: usize,
+    ) -> Result<Option<String>> {
         let handle = self.0.stdin.as_mut().unwrap();
-        match write!(handle, "{}\0", dir.display().with_score(now).with_separator('\t')) {
+        let score = dir.score(now).clamp(0.0, 9999.0);
+        let position = format_path_position(path_position, structure);
+        match write!(handle, "{score:>6.1} p={position:<5} d={distance:<2}\t{}\0", dir.path) {
             Ok(()) => Ok(None),
             Err(e) if e.kind() == io::ErrorKind::BrokenPipe => self.wait().map(Some),
             Err(e) => Err(e).context("could not write to fzf"),
         }
+    }
+
+    pub fn write_typo(&mut self, candidate: &TypoMatch<'_>, now: Epoch) -> Result<Option<String>> {
+        self.write_query(
+            candidate.dir,
+            now,
+            candidate.distance,
+            candidate.path_position,
+            candidate.structure,
+        )
     }
 
     pub fn wait(&mut self) -> Result<String> {
@@ -148,6 +167,10 @@ impl FzfChild {
             _ => bail!("fzf returned an unknown error"),
         }
     }
+}
+
+pub fn format_path_position(path_position: usize, structure: usize) -> String {
+    format!("{path_position}.{structure:02}")
 }
 
 /// Similar to [`fs::write`], but atomic (best effort on Windows).

@@ -164,6 +164,7 @@ Register-ArgumentCompleter -Native -CommandName 'zoxide' -ScriptBlock {
             [CompletionResult]::new('--list', '--list', [CompletionResultType]::ParameterName, 'List all matching directories')
             [CompletionResult]::new('-s', '-s', [CompletionResultType]::ParameterName, 'Print score with results')
             [CompletionResult]::new('--score', '--score', [CompletionResultType]::ParameterName, 'Print score with results')
+            [CompletionResult]::new('--typo-fallback', '--typo-fallback', [CompletionResultType]::ParameterName, 'Enable typo fallback even if it is disabled by the environment')
             [CompletionResult]::new('-h', '-h', [CompletionResultType]::ParameterName, 'Print help')
             [CompletionResult]::new('--help', '--help', [CompletionResultType]::ParameterName, 'Print help')
             [CompletionResult]::new('-V', '-V ', [CompletionResultType]::ParameterName, 'Print version')
