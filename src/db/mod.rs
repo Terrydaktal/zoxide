@@ -2,6 +2,7 @@ mod dir;
 mod stream;
 pub(crate) mod typo;
 
+use std::cmp::Ordering;
 use std::path::{Path, PathBuf};
 use std::{fs, io};
 
@@ -190,14 +191,16 @@ impl Database {
             dirs.sort_unstable_by(|dir1: &Dir, dir2: &Dir| {
                 let match1 = crate::db::exact_match(&dir1.path, keywords, dir1.score(now));
                 let match2 = crate::db::exact_match(&dir2.path, keywords, dir2.score(now));
-                match1
-                    .zip(match2)
-                    .map_or_else(
-                        || dir1.path.cmp(&dir2.path),
-                        |(match1, match2)| {
-                            crate::db::compare_exact_path_matches(match1, match2).reverse()
-                        },
-                    )
+                match (match1, match2) {
+                    (Some(match1), Some(match2)) => {
+                        crate::db::compare_exact_path_matches(match1, match2).reverse()
+                    }
+                    // The stream iterates the sorted database in reverse, so matching entries
+                    // must sort after non-matches in storage order.
+                    (Some(_), None) => Ordering::Greater,
+                    (None, Some(_)) => Ordering::Less,
+                    (None, None) => dir1.path.cmp(&dir2.path),
+                }
             })
         });
         self.with_dirty_mut(|dirty| *dirty = true);

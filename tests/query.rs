@@ -171,6 +171,39 @@ fn query_typo_fallback_honors_exclude_and_base_dir() {
 }
 
 #[test]
+fn typo_fallback_uses_path_position_then_frecency_then_structure() {
+    let root = tempfile::tempdir().unwrap();
+    let data_dir = root.path().join("data");
+    let applications = root.path().join("home/lewis/.local/share/applications");
+    let launcher = root.path().join("home/lewis/Dev/applicationlauncher");
+    let release = root.path().join("home/lewis/Dev/applicationlauncher/target/release");
+    fs::create_dir_all(&applications).unwrap();
+    fs::create_dir_all(&launcher).unwrap();
+    fs::create_dir_all(&release).unwrap();
+    for _ in 0..3 {
+        add_dir(&data_dir, &applications);
+    }
+    for _ in 0..12 {
+        add_dir(&data_dir, &launcher);
+    }
+    for _ in 0..4 {
+        add_dir(&data_dir, &release);
+    }
+
+    bin()
+        .env("_ZO_DATA_DIR", &data_dir)
+        .args(["query", "--list", "appliatoin"])
+        .assert()
+        .success()
+        .stdout(format!(
+            "{}\n{}\n{}\n",
+            launcher.display(),
+            applications.display(),
+            release.display()
+        ));
+}
+
+#[test]
 fn normal_query_prefers_higher_frecency_before_path_position() {
     let root = tempfile::tempdir().unwrap();
     let data_dir = root.path().join("data");
@@ -208,6 +241,34 @@ fn normal_query_uses_lower_match_penalty_as_last_tiebreak() {
         .assert()
         .success()
         .stdout(format!("{}\n{}\n", lower_penalty.display(), higher_penalty.display()));
+}
+
+#[test]
+fn short_query_with_mixed_matches_does_not_panic() {
+    let root = tempfile::tempdir().unwrap();
+    let data_dir = root.path().join("data");
+    let higher_score_match = root.path().join("home/lewis/projects");
+    let lower_score_match = root.path().join("home/lewis/personal");
+    let non_match = root.path().join("home/lewis/tasks/config");
+    fs::create_dir_all(&higher_score_match).unwrap();
+    fs::create_dir_all(&lower_score_match).unwrap();
+    fs::create_dir_all(&non_match).unwrap();
+    for _ in 0..4 {
+        add_dir(&data_dir, &higher_score_match);
+    }
+    add_dir(&data_dir, &lower_score_match);
+    add_dir(&data_dir, &non_match);
+
+    bin()
+        .env("_ZO_DATA_DIR", &data_dir)
+        .args(["query", "--list", "p"])
+        .assert()
+        .success()
+        .stdout(format!(
+            "{}\n{}\n",
+            higher_score_match.display(),
+            lower_score_match.display()
+        ));
 }
 
 #[test]

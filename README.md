@@ -86,17 +86,25 @@ Read more about the matching algorithm [here][algorithm-matching].
 
 Normal query ranking is applied in this order:
 
-1. Path-position class `p`, ascending.
-   - `p=0.xx` means the match is in the basename at the start of a token.
-   - `p=1.xx` means the match is in the basename at the end of a token.
-   - `p=2.xx` means the match is in the middle of the basename token.
-   - `p=3.xx`, `p=4.xx`, and `p=5.xx` repeat the same start/end/middle ladder for the parent directory, then `6.xx` and above continue outward toward higher ancestors.
-2. Structural refinement `m`, ascending.
-   - Internally, `m` is still compared after the coarse `p` class.
-   - In the interactive UI, `m` is shown as the fractional part of `p`.
-   - Example: `onfig` in `config` renders as `p=1.01`, while `onfig` in `redragonmouseconfig` renders as `p=1.13`.
-3. Frecency score, descending.
+1. Frecency score, descending.
+2. Path-position score `p`, ascending.
+   - `p=0` means a match at the start of a basename token.
+   - `p=1` means a match at the end of a basename token.
+   - `p=2` means a match in the middle of a basename token.
+   - `p=3`, `p=4`, and `p=5` repeat the same start/end/middle ladder for the parent directory, then `6` and above continue outward toward higher ancestors.
+3. Structural penalty `m`, ascending.
 4. Path string as the final deterministic tie-break.
+
+For multi-token normal queries, zoxide matches the keywords from right to left through the path and then sums the per-token penalties:
+
+- `p` is the sum of each matched token's path-position class.
+- `m` is the sum of the extra structural characters around each matched token span.
+- `d` is `0` because typo fallback was not used.
+
+Examples:
+
+- `ap laun` matching `applicationlauncher` in the basename start gives a low `p` because both tokens match early in the basename.
+- `tasks onfig` matching `tasks/config` gives `m=2` because the two matches leave one unmatched structural character around each matched span.
 
 Typo fallback ranking is only considered after the normal matcher fails, and is applied in this order:
 
@@ -110,30 +118,32 @@ In first-result mode, `zoxide query` and `z` first run a faster basename-only ty
    - then fewer insert/delete operations
    - then fewer transpositions
 3. Normalized typo ratio, ascending.
-4. Match scope, ascending.
-   - basename
-   - basename token
-   - other path component
-   - other path component token
-   - full path
-5. Path-position class `p`, ascending.
-6. Structural refinement `m`, ascending.
-7. Frecency score, descending.
-8. Path depth, ascending.
-9. Path string, ascending.
+4. Path-position score `p`, ascending.
+5. Frecency score, descending.
+6. Structural penalty `m`, ascending.
+7. Path depth, ascending.
+8. Path string, ascending.
+
+For multi-token typo queries, zoxide tries several path-shaped match variants and keeps the best one. When that best variant uses more than one token:
+
+- `d` is the total bounded Damerau-Levenshtein edit cost summed across the chosen token-to-token matches.
+- `p` is the sum of the per-token path-position classes for those chosen matches.
+- `m` is the sum of the per-token structural penalties for those chosen matches.
+
+So for both exact and typo ranking, `p`, `m`, and multi-token `d` are additive totals over the chosen token alignment, not per-query maxima and not independent per-column displays.
 
 Interactive `zi` / `cdi` rows are displayed as:
 
 ```text
-<frecency> p=<path class>.<structural refinement> d=<typo distance> <path>
+<frecency> p=<path score> m=<structural penalty> d=<typo distance> <path>
 ```
 
-- `p` is shown as a single value where the integer part is the path-position class and the fractional part is the structural refinement `m`, zero-padded to two digits.
-- Example: `p=0.01` means a basename-leading match with `m=1`, while `p=1.14` means a basename-suffix match with `m=14`.
-- The display order is score, then `p`, then `d`.
+- `p`, `m`, and `d` are shown as separate columns.
+- For multi-token queries, those displayed numbers are the summed totals described above.
+- The display order is frecency, then `p`, then `m`, then `d`.
 - The actual sort order remains the hierarchy described above.
 - For normal matches, `d=0` means typo fallback was not needed.
-- For typo fallback matches, `d` shows the bounded Damerau-Levenshtein-based edit cost, while the fractional part of `p` shows how much extra token structure had to be skipped around the best matching span.
+- For typo fallback matches, `d` shows the bounded Damerau-Levenshtein-based edit cost, while `p` and `m` show the positional and structural totals of the chosen best match shape.
 
 ## Installation
 
