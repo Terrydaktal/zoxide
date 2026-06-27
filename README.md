@@ -86,38 +86,41 @@ Read more about the matching algorithm [here][algorithm-matching].
 
 Normal query ranking is applied in this order:
 
-1. Match-quality vector, strongest to weakest, compared keyword-by-keyword from right to left:
-   - exact token match
-   - token-prefix match
-   - token-suffix match
-   - token-contains-substring match
-2. Path-position class `p`, ascending.
+1. Path-position class `p`, ascending.
    - `p=0.xx` means the match is in the basename at the start of a token.
    - `p=1.xx` means the match is in the basename at the end of a token.
    - `p=2.xx` means the match is in the middle of the basename token.
    - `p=3.xx`, `p=4.xx`, and `p=5.xx` repeat the same start/end/middle ladder for the parent directory, then `6.xx` and above continue outward toward higher ancestors.
-3. Structural refinement `m`, ascending.
+2. Structural refinement `m`, ascending.
    - Internally, `m` is still compared after the coarse `p` class.
    - In the interactive UI, `m` is shown as the fractional part of `p`.
    - Example: `onfig` in `config` renders as `p=1.01`, while `onfig` in `redragonmouseconfig` renders as `p=1.13`.
-4. Frecency score, descending.
-5. Path string as the final deterministic tie-break.
+3. Frecency score, descending.
+4. Path string as the final deterministic tie-break.
 
 Typo fallback ranking is only considered after the normal matcher fails, and is applied in this order:
 
+Typo fallback compares each query against full paths, path components, tokenized components, and short token alignments. For single-token queries, it also tries variants with one inserted separator so missing-space typos such as `applaunch` can match `applicationlauncher`; this is intentionally limited to one inserted separator to avoid a large per-entry search.
+
+In first-result mode, `zoxide query` and `z` first run a faster basename-only typo pass. If that pass finds a strong unambiguous basename or basename-token match with `d <= 1`, it returns that result immediately. Otherwise, zoxide falls back to the full typo ranking below.
+
 1. Typo distance `d`, ascending.
-2. Normalized typo ratio, ascending.
-3. Match scope, ascending.
+2. Operation profile, ascending, as an internal tie-break for equal `d`.
+   - fewer substitutions
+   - then fewer insert/delete operations
+   - then fewer transpositions
+3. Normalized typo ratio, ascending.
+4. Match scope, ascending.
    - basename
    - basename token
    - other path component
    - other path component token
    - full path
-4. Path-position class `p`, ascending.
-5. Structural refinement `m`, ascending.
-6. Frecency score, descending.
-7. Path depth, ascending.
-8. Path string, ascending.
+5. Path-position class `p`, ascending.
+6. Structural refinement `m`, ascending.
+7. Frecency score, descending.
+8. Path depth, ascending.
+9. Path string, ascending.
 
 Interactive `zi` / `cdi` rows are displayed as:
 

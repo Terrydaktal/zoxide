@@ -91,6 +91,14 @@ fn query_typo_fallback_preserves_normal_match_and_can_be_disabled() {
     bin()
         .env("_ZO_DATA_DIR", &data_dir)
         .arg("query")
+        .arg("applaunch")
+        .assert()
+        .success()
+        .stdout(format!("{}\n", launcher.display()));
+
+    bin()
+        .env("_ZO_DATA_DIR", &data_dir)
+        .arg("query")
         .arg("tasks")
         .arg("cinfig")
         .assert()
@@ -124,9 +132,9 @@ fn interactive_query_shows_exact_and_typo_distances() {
         .args(["query", "--interactive", "--score", "xfce4", "terminal"])
         .assert()
         .success()
-        .stdout(contains("p=0.00  d=0 "))
+        .stdout(contains("p=0  m=0  d=0 "))
         .stdout(contains(format!("\t{}", exact.display())))
-        .stdout(contains("p=0.00  d=1 "))
+        .stdout(contains("p=0  m=0  d=1 "))
         .stdout(contains(format!("\t{}", near.display())));
 }
 
@@ -163,7 +171,7 @@ fn query_typo_fallback_honors_exclude_and_base_dir() {
 }
 
 #[test]
-fn normal_query_prefers_exact_token_over_suffix_match_before_frecency() {
+fn normal_query_prefers_higher_frecency_before_path_position() {
     let root = tempfile::tempdir().unwrap();
     let data_dir = root.path().join("data");
     let exact = root.path().join("home/lewis/tasks/config");
@@ -180,11 +188,11 @@ fn normal_query_prefers_exact_token_over_suffix_match_before_frecency() {
         .args(["query", "--list", "tasks", "config"])
         .assert()
         .success()
-        .stdout(format!("{}\n{}\n", exact.display(), suffix.display()));
+        .stdout(format!("{}\n{}\n", suffix.display(), exact.display()));
 }
 
 #[test]
-fn normal_query_prefers_lower_match_penalty_before_frecency() {
+fn normal_query_uses_lower_match_penalty_as_last_tiebreak() {
     let root = tempfile::tempdir().unwrap();
     let data_dir = root.path().join("data");
     let lower_penalty = root.path().join("home/lewis/tasks/config");
@@ -192,9 +200,7 @@ fn normal_query_prefers_lower_match_penalty_before_frecency() {
     fs::create_dir_all(&lower_penalty).unwrap();
     fs::create_dir_all(&higher_penalty).unwrap();
     add_dir(&data_dir, &lower_penalty);
-    for _ in 0..4 {
-        add_dir(&data_dir, &higher_penalty);
-    }
+    add_dir(&data_dir, &higher_penalty);
 
     bin()
         .env("_ZO_DATA_DIR", &data_dir)

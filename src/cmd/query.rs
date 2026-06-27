@@ -9,7 +9,7 @@ use crate::db::{
     Database, Epoch, Stream, StreamOptions, TypoMatch, match_path_position, match_penalty,
 };
 use crate::error::BrokenPipeHandler;
-use crate::util::{self, Fzf, FzfChild, format_path_position};
+use crate::util::{self, Fzf, FzfChild};
 
 impl Run for Query {
     fn run(&self) -> Result<()> {
@@ -127,6 +127,25 @@ impl Query {
         }
 
         if typo_fallback {
+            let basename_matches =
+                stream.typo_basename_matches(&self.keywords, self.exclude.as_deref(), now);
+            match basename_matches.as_slice() {
+                [candidate, ..]
+                    if candidate.distance <= 1
+                        && !basename_matches
+                            .get(1)
+                            .is_some_and(|next| is_ambiguous(candidate, next)) =>
+                {
+                    let dir = if self.score {
+                        candidate.dir.display().with_score(now)
+                    } else {
+                        candidate.dir.display()
+                    };
+                    return writeln!(handle, "{dir}").pipe_exit("stdout");
+                }
+                _ => {}
+            }
+
             let matches = stream.typo_matches(&self.keywords, self.exclude.as_deref(), now);
             match matches.as_slice() {
                 [] => {}
@@ -206,11 +225,11 @@ fn format_ambiguous_matches(matches: &[TypoMatch<'_>]) -> String {
     let mut message = String::from("ambiguous typo match");
     for candidate in matches.iter().take(5) {
         message.push_str(&format!(
-            "\n  d={} p={} ratio={:.3} scope={} {}",
+            "\n  d={} p={} m={} ratio={:.3} {}",
             candidate.distance,
-            format_path_position(candidate.path_position, candidate.structure),
+            candidate.path_position,
+            candidate.structure,
             candidate.ratio,
-            candidate.scope,
             candidate.dir.path
         ));
     }

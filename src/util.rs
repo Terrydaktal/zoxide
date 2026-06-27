@@ -131,8 +131,11 @@ impl FzfChild {
     ) -> Result<Option<String>> {
         let handle = self.0.stdin.as_mut().unwrap();
         let score = dir.score(now).clamp(0.0, 9999.0);
-        let position = format_path_position(path_position, structure);
-        match write!(handle, "{score:>6.1} p={position:<5} d={distance:<2}\t{}\0", dir.path) {
+        match write!(
+            handle,
+            "{score:>6.1} p={path_position:<2} m={structure:<2} d={distance:<2}\t{}\0",
+            dir.path
+        ) {
             Ok(()) => Ok(None),
             Err(e) if e.kind() == io::ErrorKind::BrokenPipe => self.wait().map(Some),
             Err(e) => Err(e).context("could not write to fzf"),
@@ -167,10 +170,6 @@ impl FzfChild {
             _ => bail!("fzf returned an unknown error"),
         }
     }
-}
-
-pub fn format_path_position(path_position: usize, structure: usize) -> String {
-    format!("{path_position}.{structure:02}")
 }
 
 /// Similar to [`fs::write`], but atomic (best effort on Windows).
